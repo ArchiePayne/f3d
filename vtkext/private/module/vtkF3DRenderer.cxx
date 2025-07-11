@@ -17,7 +17,6 @@
 #include <vtkCamera.h>
 #include <vtkCellData.h>
 #include <vtkCornerAnnotation.h>
-#include <vtkCubeAxesActor.h>
 #include <vtkCullerCollection.h>
 #include <vtkDiscretizableColorTransferFunction.h>
 #include <vtkFloatArray.h>
@@ -62,6 +61,10 @@
 #include <vtksys/FStream.hxx>
 #include <vtksys/MD5.h>
 #include <vtksys/SystemTools.hxx>
+
+#if VTK_VERSION_NUMBER >= VTK_VERSION_CHECK(9, 4, 20250513)
+#include <vtkGridAxesActor3D.h>
+#endif
 
 #if VTK_VERSION_NUMBER >= VTK_VERSION_CHECK(9, 2, 20221220)
 #include <vtkSphericalHarmonics.h>
@@ -265,9 +268,13 @@ void vtkF3DRenderer::Initialize()
 
   this->AddViewProp(this->ScalarBarActor);
   this->AddActor(this->GridActor);
-  this->AddActor(this->CubeAxesActor);
   this->AddActor(this->SkyboxActor);
   this->AddActor(this->UIActor);
+
+#if VTK_VERSION_NUMBER >= VTK_VERSION_CHECK(9, 4, 20250513)
+  this->AddActor(this->GridAxesActor);
+  this->GridAxesActor->SetUseBounds(false);
+#endif
 
   this->GridConfigured = false;
   this->CheatSheetConfigured = false;
@@ -712,20 +719,23 @@ void vtkF3DRenderer::ConfigureGridUsingCurrentActors()
 }
 
 //----------------------------------------------------------------------------
-void vtkF3DRenderer::ShowAxesGrid(bool show)
+void vtkF3DRenderer::ShowAxesGrid([[maybe_unused]] bool show)
 {
+#if VTK_VERSION_NUMBER >= VTK_VERSION_CHECK(9, 4, 20250513)
   if (this->AxesGridVisible != show)
   {
     this->AxesGridVisible = show;
     this->RenderPassesConfigured = false;
-    this->CubeAxesConfigured = false;
+    this->GridAxesConfigured = false;
     this->CheatSheetConfigured = false;
   }
+#endif
 }
 
 //----------------------------------------------------------------------------
-void vtkF3DRenderer::ConfigureCubeAxisUsingCurrentActors()
+void vtkF3DRenderer::ConfigureGridAxesUsingCurrentActors()
 {
+#if VTK_VERSION_NUMBER >= VTK_VERSION_CHECK(9, 4, 20250513)
   bool show = this->AxesGridVisible;
   if (show)
   {
@@ -756,40 +766,28 @@ void vtkF3DRenderer::ConfigureCubeAxisUsingCurrentActors()
     }
     else
     {
-      this->CubeAxesActor->SetOrientation(orientation);
-      this->CubeAxesActor->SetVisibility(true);
+      this->GridAxesActor->SetOrientation(orientation);
+      this->GridAxesActor->SetVisibility(true);
 
       double center[4] = { 0, 0, 0, 1 };
       bbox.GetCenter(center);
 
-      this->CubeAxesActor->SetPosition(center);
+      this->GridAxesActor->SetPosition(center);
 
       double a, b, c, x, y, z;
       bbox.GetBounds(a, b, c, x, y, z);
-      double bounds[6] = { a, b, c, x, y, z };
-      this->CubeAxesActor->SetBounds(bounds);
+      GridAxesActor->SetGridBounds(a, b, c, x, y, z);
 
-      this->CubeAxesActor->XAxisLabelVisibilityOn();
-      this->CubeAxesActor->YAxisLabelVisibilityOn();
-      this->CubeAxesActor->ZAxisLabelVisibilityOn();
-      this->CubeAxesActor->SetCamera(GetActiveCamera());
+      GridAxesActor->SetXTitle("X Axis");
+      GridAxesActor->SetYTitle("Y Axis");
+      GridAxesActor->SetZTitle("Z Axis");
 
-      this->CubeAxesActor->SetFlyModeToStaticEdges();
-      this->CubeAxesActor->SetXAxisMinorTickVisibility(false);
-      this->CubeAxesActor->SetYAxisMinorTickVisibility(false);
-      this->CubeAxesActor->SetZAxisMinorTickVisibility(false);
-
-      this->CubeAxesActor->GetLabelTextProperty(0)->SetColor(right);
-      this->CubeAxesActor->GetTitleTextProperty(0)->SetColor(right);
-      this->CubeAxesActor->GetLabelTextProperty(1)->SetColor(up);
-      this->CubeAxesActor->GetTitleTextProperty(1)->SetColor(up);
-      this->CubeAxesActor->GetLabelTextProperty(2)->SetColor(front);
-      this->CubeAxesActor->GetTitleTextProperty(2)->SetColor(front);
-
-      this->CubeAxesConfigured = true;
+      this->GridAxesConfigured = true;
     }
   }
-  this->CubeAxesActor->SetVisibility(show);
+  this->GridAxesActor->SetVisibility(show);
+
+#endif
 }
 
 //----------------------------------------------------------------------------
@@ -1792,6 +1790,11 @@ void vtkF3DRenderer::UpdateActors()
     this->ConfigureTextActors();
   }
 
+  if (!this->GridAxesConfigured)
+  {
+    this->ConfigureGridAxesUsingCurrentActors();
+  }
+
   if (!this->RenderPassesConfigured)
   {
     this->ConfigureRenderPasses();
@@ -1801,11 +1804,6 @@ void vtkF3DRenderer::UpdateActors()
   if (!this->GridConfigured)
   {
     this->ConfigureGridUsingCurrentActors();
-  }
-
-  if (!this->CubeAxesConfigured)
-  {
-    this->ConfigureCubeAxisUsingCurrentActors();
   }
 }
 
@@ -2013,6 +2011,16 @@ void vtkF3DRenderer::SetEmissiveFactor(const std::optional<std::vector<double>>&
 }
 
 //----------------------------------------------------------------------------
+void vtkF3DRenderer::SetTexturesTransform(const std::optional<std::vector<double>>& transform)
+{
+  if (this->TexturesTransform != transform)
+  {
+    this->TexturesTransform = transform;
+    this->ActorsPropertiesConfigured = false;
+  }
+}
+
+//----------------------------------------------------------------------------
 void vtkF3DRenderer::SetTextureMatCap(const std::optional<fs::path>& tex)
 {
   if (this->TextureMatCap != tex)
@@ -2163,6 +2171,20 @@ void vtkF3DRenderer::ConfigureActorsProperties()
     }
 
     // Textures
+    if (this->TexturesTransform.has_value())
+    {
+      const std::vector<double> texTransform = this->TexturesTransform.value();
+      double transform[] = {                                    //
+        texTransform[0], texTransform[1], texTransform[2], 0.0, //
+        texTransform[3], texTransform[4], texTransform[5], 0.0, //
+        texTransform[6], texTransform[7], texTransform[8], 0.0, //
+        0.0, 0.0, 0.0, 1.0
+      };
+
+      this->ConfigureActorTextureTransform(coloring.OriginalActor, transform);
+      this->ConfigureActorTextureTransform(coloring.Actor, transform);
+    }
+
     if (this->TextureBaseColor.has_value())
     {
       auto colorTex = ::GetTexture(this->TextureBaseColor.value(), true);
@@ -2875,6 +2897,43 @@ void vtkF3DRenderer::CycleFieldForColoring()
   {
     // Cycle array if the current one is not valid
     this->CycleArrayForColoring();
+  }
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DRenderer::ConfigureActorTextureTransform(vtkActor* actorBase, const double* matrix)
+{
+  vtkInformation* info = actorBase->GetPropertyKeys();
+  if (info)
+  {
+    /**
+     * The actor already has a property key dictionary
+     * Check that GeneralTextureTransform exists and combine,
+     * Otherwise set the property to our texture transform
+     */
+
+    double finalTransform[16] = {};
+    for (int i = 0; i < 16; i++)
+    {
+      finalTransform[i] = matrix[i];
+    }
+
+    if (auto transformPtr = info->Get(vtkProp::GeneralTextureTransform()))
+    {
+      // We need to create 4x4 vtk matrixes from the arrays
+      vtkNew<vtkMatrix4x4> matTransform;
+      matTransform->Multiply4x4(transformPtr, matrix, finalTransform);
+    }
+    info->Set(vtkProp::GeneralTextureTransform(), finalTransform, 16);
+  }
+  else
+  {
+    /**
+     * No dictionary found, add new dictionary with transform
+     */
+    vtkNew<vtkInformation> properties;
+    properties->Set(vtkProp::GeneralTextureTransform(), matrix, 16);
+    actorBase->SetPropertyKeys(properties);
   }
 }
 

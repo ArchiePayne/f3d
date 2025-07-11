@@ -16,6 +16,7 @@
 
 #include <vtkLight.h>
 #include <vtkOpenGLRenderer.h>
+#include <vtkVersion.h>
 
 #include <filesystem>
 #include <map>
@@ -26,7 +27,7 @@ namespace fs = std::filesystem;
 class vtkDiscretizableColorTransferFunction;
 class vtkColorTransferFunction;
 class vtkCornerAnnotation;
-class vtkCubeAxesActor;
+class vtkGridAxesActor3D;
 class vtkImageReader2;
 class vtkOrientationMarkerWidget;
 class vtkScalarBarActor;
@@ -220,6 +221,11 @@ public:
    * Set the emmissive factors on all actors
    */
   void SetEmissiveFactor(const std::optional<std::vector<double>>& factors);
+
+  /**
+   * Set the texture transform on all actors
+   */
+  void SetTexturesTransform(const std::optional<std::vector<double>>& transform);
 
   /**
    * Set the opacity on all actors
@@ -467,9 +473,9 @@ private:
   void ConfigureGridUsingCurrentActors();
 
   /**
-   * Configure the cube Axis actor
+   * Configure the Grid Axes actor
    */
-  void ConfigureCubeAxisUsingCurrentActors();
+  void ConfigureGridAxesUsingCurrentActors();
 
   /**
    * Configure the different render passes
@@ -513,10 +519,19 @@ private:
    */
   void ConfigureRangeAndCTFForColoring(const F3DColoringInfoHandler::ColoringInfo& info);
 
+  /**
+   * Convenience method to set texture transform in ConfigureActorsProperties()
+   */
+  void ConfigureActorTextureTransform(vtkActor* actorBase, const double* matrix);
+
   vtkSmartPointer<vtkOrientationMarkerWidget> AxisWidget;
 
+  // Does vtk version support GridAxesActor
+#if VTK_VERSION_NUMBER >= VTK_VERSION_CHECK(9, 4, 20250513)
+  vtkNew<vtkGridAxesActor3D> GridAxesActor;
+#endif
+
   vtkNew<vtkActor> GridActor;
-  vtkNew<vtkCubeAxesActor> CubeAxesActor;
   vtkNew<vtkSkybox> SkyboxActor;
   vtkNew<vtkF3DUIActor> UIActor;
 
@@ -525,7 +540,7 @@ private:
   bool CheatSheetConfigured = false;
   bool ActorsPropertiesConfigured = false;
   bool GridConfigured = false;
-  bool CubeAxesConfigured = false;
+  bool GridAxesConfigured = false;
   bool RenderPassesConfigured = false;
   bool LightIntensitiesConfigured = false;
   bool TextActorsConfigured = false;
@@ -618,6 +633,7 @@ private:
   std::optional<double> NormalScale;
   std::optional<std::vector<double>> SurfaceColor;
   std::optional<std::vector<double>> EmissiveFactor;
+  std::optional<std::vector<double>> TexturesTransform;
   std::optional<fs::path> TextureMatCap;
   std::optional<fs::path> TextureBaseColor;
   std::optional<fs::path> TextureMaterial;
